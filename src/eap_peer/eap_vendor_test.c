@@ -21,9 +21,6 @@
 #define EAP_VENDOR_TEST_SUBTYPE_5GNOTIFICATION 0x03
 #define EAP_VENDOR_TEST_SUBTYPE_5GSTOP 0x04
 
-/* wifi interface name */
-#define wifiifname "wlp1s0"
-
 unsigned char hexCharToByte(char c) {
     if ('0' <= c && c <= '9') {
         return c - '0';
@@ -1444,9 +1441,30 @@ static void eap_vendor_test_NWt_setup(struct eap_sm *sm, void *priv)
 	data->ikev2.child_sa[data->ikev2.child_sa_idx].xfrmIfaceId = data->ikev2.child_sa_idx + 1;
 	// generate key
 	ikev2_generate_key_for_childSA(&data->ikev2);
-
+	// reading wifiifname
+	FILE *f = fopen("sec.conf", "r");
+	if (f == NULL) {
+		wpa_printf(MSG_ERROR, "File sec.conf not exist\n");
+		exit(1);
+	}
+	char buffer[64];
+	char wifiifname[IFNAMSIZ-1];
+	memset(wifiifname, 0, IFNAMSIZ-1);
+	while (fgets(buffer, 64, f) != NULL) {
+		wpa_printf(MSG_DEBUG, "%s", buffer);
+		char *token = strtok(buffer, ":");
+		char *val = strtok(NULL, ":");
+		val = strtok(val, "\n");
+		if (strncmp(token, "wifiifname", 10) == 0) {
+			strncpy(wifiifname, val, IFNAMSIZ-1);
+		}
+	}
+	if (wifiifname[0] == 0) {
+		wpa_printf(MSG_ERROR, "please set wifiifname in wpa_supplicant/sec.conf. ");
+		exit(1);
+	}
 	// Xfrm Rules
-	char *link_add = malloc(200 * sizeof(char));;
+	char *link_add = malloc(200 * sizeof(char));
 	sprintf(link_add, "ip link add xfrm-%d type xfrm dev %s if_id %d", data->ikev2.child_sa[data->ikev2.child_sa_idx].xfrmIfaceId, wifiifname, data->ikev2.child_sa[data->ikev2.child_sa_idx].xfrmIfaceId);
 	wpa_printf(MSG_DEBUG, "link add: %s", link_add);
 	system(link_add);
@@ -1703,6 +1721,28 @@ void eap_vendor_test_ikev2_conn(struct eap_sm *sm, void *priv)
 	int fd = socket(AF_INET, SOCK_DGRAM, 0);
 	struct ifreq ifr;
 	ifr.ifr_addr.sa_family = AF_INET;
+	// reading wifiifname
+	FILE *f = fopen("sec.conf", "r");
+	if (f == NULL) {
+		wpa_printf(MSG_ERROR, "File sec.conf not exist\n");
+		exit(1);
+	}
+	char buffer[64];
+	char wifiifname[IFNAMSIZ-1];
+	memset(wifiifname, 0, IFNAMSIZ-1);
+	while (fgets(buffer, 64, f) != NULL) {
+		wpa_printf(MSG_DEBUG, "%s", buffer);
+		char *token = strtok(buffer, ":");
+		char *val = strtok(NULL, ":");
+		val = strtok(val, "\n");
+		if (strncmp(token, "wifiifname", 10) == 0) {
+			strncpy(wifiifname, val, IFNAMSIZ-1);
+		}
+	}
+	if (wifiifname[0] == 0) {
+		wpa_printf(MSG_ERROR, "please set wifiifname in wpa_supplicant/sec.conf. ");
+		exit(1);
+	}
 	strncpy(ifr.ifr_name, wifiifname, IFNAMSIZ-1);
 	ioctl(fd, SIOCGIFADDR, &ifr);
 	close(fd);
