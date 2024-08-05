@@ -454,10 +454,13 @@ void sync_config_sqn(u8 *sqn, size_t len)
 	{
 		strcpy(buffer_copy, buffer);
 		char *token = strtok(buffer, ":");
+		wpa_printf(MSG_DEBUG, "read token: %s\n", token);
 		if (token[0] == 'S')
 		{
+			wpa_printf(MSG_DEBUG, "%d\n", len);
 			for (int i = 0; i < len; i++)
 			{
+				wpa_printf(MSG_DEBUG, "sqn:%d\n", sqn[i]);
 				int tmp = sqn[i] / 16;
 				char add;
 				if (tmp <= 9 && tmp >= 0)
@@ -515,7 +518,7 @@ static struct wpabuf * GetAutheticationResponse(struct wpabuf *resp, const u8 *_
 		} else if (strncmp(token, "SQN", 3) == 0) {
 			sqn = malloc((strlen(val) / 2) * sizeof(u8));
 			convert_byte(sqn, val, strlen(val));
-			sync_config_sqn(sqn, strlen(sqn));
+			sync_config_sqn(sqn, 6);
 		} else if (strncmp(token, "AMF", 3) == 0) {
 			amf = malloc((strlen(val) / 2) * sizeof(u8));
 			convert_byte(amf, val, strlen(val));
