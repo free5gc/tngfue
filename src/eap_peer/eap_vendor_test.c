@@ -515,7 +515,6 @@ static struct wpabuf * GetAutheticationResponse(struct wpabuf *resp, const u8 *_
 		} else if (strncmp(token, "SQN", 3) == 0) {
 			sqn = malloc((strlen(val) / 2) * sizeof(u8));
 			convert_byte(sqn, val, strlen(val));
-			// sync_config_sqn(sqn, 6);
 		} else if (strncmp(token, "AMF", 3) == 0) {
 			amf = malloc((strlen(val) / 2) * sizeof(u8));
 			convert_byte(amf, val, strlen(val));
@@ -572,6 +571,7 @@ static struct wpabuf * GetAutheticationResponse(struct wpabuf *resp, const u8 *_
 	}
 	free(ans);
 	free(words);
+	// update sqn in sec.conf before returning the response
 	sync_config_sqn(sqn, 6);
 	// Kausf calculation
 	u8 *param = malloc(43 * sizeof(u8)), *kausf = malloc(32 * sizeof(u8));
