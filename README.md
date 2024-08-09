@@ -13,7 +13,7 @@
 // 1. wireless connection
 > sudo ./wpa_supplicant -c ../wpa_supplicant.conf -i <wifi interface name> -dd
         
-// 2. wired conncetion
+// 2. wired conncetion (So far, this option has not been tested with TNGF)
 > sudo ./wpa_supplicant -c ../wpa_supplicant.conf -i <wired interface name> -D wired -dd
 ```
 
