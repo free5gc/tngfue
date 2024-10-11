@@ -2,7 +2,34 @@
 
 ## Execution Flow
 
-TODO
+### 1. Clone the repository
+
+```
+git clone https://github.com/free5gc/tngfue.git
+cd tngfue
+```
+
+### 2. Install prerequisites and UE configuration files
+
+The [prepare.sh](./prepare.sh) script was designed to automate this process
+
+```
+./prepare.sh
+```
+
+**Tip:** To customize the script's execution flow, update the variables in the beginning of the file
+
+**Note:** Make sure the parameters match the configuration both on free5gc database/webconsole and on Wi-Fi AP
+
+### 3. Run TNGFUE
+
+The [run.sh](./run.sh) script was designed to automate the processes required to run the UE (and to enable multiple UE executions)
+
+```
+./run.sh
+```
+
+**Note:** Make sure the parameters match the configuration on Wi-Fi AP and available network interface name
 
 ## Additional Tips
 
