@@ -41,6 +41,8 @@ function terminate()
 
     echo "[INFO][TNGFUE] Terminating TNGFUE..."
     sudo kill -SIGTERM ${PID_LIST[@]}
+
+    cd ..
 }
 
 # Configure IP and route
@@ -48,6 +50,7 @@ sudo ip addr add $IFACE_IP/$IFACE_MASK brd $IFACE_BROADCAST_IP dev $IFACE_NAME
 sudo ip route add default via $IFACE_IP dev $IFACE_NAME
 
 # Run TNGFUE
+cd wpa_supplicant
 sudo ./wpa_supplicant -c ../wpa_supplicant.conf -i $IFACE_NAME &
 SUDO_TNGFUE_PID=$!
 sleep 0.1
