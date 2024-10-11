@@ -9,10 +9,12 @@ fi
 
 PID_LIST=()
 IFACE_NAME='wlp3s0' # network interface used to connect to the TNGF / Wi-Fi AP
+IFACE_IP='192.168.1.202' # IP address to be used by the network interface
+IFACE_MASK='24' # Network mask to be used by configuration command
+IFACE_BROADCAST_IP='192.168.1.255' # IP address to be used by configuration command
 
 function terminate()
 {
-    # sleep 1
     # Remove all GRE interfaces
     echo "[INFO][TNGFUE] Removing all GRE interfaces"
     GREs=$(ip link show type gre | awk 'NR%2==1 {print $2}' | cut -d @ -f 1)
@@ -33,8 +35,17 @@ function terminate()
         echo del ${XFRMI}
     done
 
+    # Remove IP and route
+    echo "[INFO][TNGFUE] Removing IP and route"
+    sudp ip addr flush $IFACE_NAME # removes IP and default route too
+
+    echo "[INFO][TNGFUE] Terminating TNGFUE..."
     sudo kill -SIGTERM ${PID_LIST[@]}
 }
+
+# Configure IP and route
+sudo ip addr add $IFACE_IP/$IFACE_MASK brd $IFACE_BROADCAST_IP dev $IFACE_NAME
+sudo ip route add default via $IFACE_IP dev $IFACE_NAME
 
 # Run TNGFUE
 sudo ./wpa_supplicant -c ../wpa_supplicant.conf -i $IFACE_NAME &
@@ -47,5 +58,6 @@ echo "[DEBUG][TNGFUE]" TNGFUE_PID ${TNGFUE_PID}
 
 trap terminate SIGINT
 wait ${PID_LIST}
+sleep 1
 echo "[INFO][TNGFUE] The TNGFUE terminated successfully"
 exit 0
