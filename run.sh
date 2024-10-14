@@ -37,7 +37,7 @@ function terminate()
 
     # Remove IP and route
     echo "[INFO][TNGFUE] Removing IP and route"
-    sudp ip addr flush $IFACE_NAME # removes IP and default route too
+    sudo ip addr flush $IFACE_NAME # removes IP and default route too
 
     echo "[INFO][TNGFUE] Terminating TNGFUE..."
     sudo kill -SIGTERM ${PID_LIST[@]}
