@@ -61,6 +61,6 @@ echo "[DEBUG][TNGFUE]" TNGFUE_PID ${TNGFUE_PID}
 
 trap terminate SIGINT
 wait ${PID_LIST}
-sleep 1
+sleep 3 # gives enough time for wpa_supplicant to finish when it's stuck or in a loop
 echo "[INFO][TNGFUE] The TNGFUE terminated successfully"
 exit 0
