@@ -23,6 +23,10 @@ esac
 
 function terminate()
 {
+    echo "[INFO][TNGFUE] Terminating TNGFUE..."
+    sudo kill -SIGTERM ${PID_LIST[@]}
+    sleep 3 # gives enough time for wpa_supplicant to finish when it's stuck or in a loop
+
     # Remove all GRE interfaces
     echo "[INFO][TNGFUE] Removing all GRE interfaces"
     GREs=$(ip link show type gre | awk 'NR%2==1 {print $2}' | cut -d @ -f 1)
@@ -47,9 +51,6 @@ function terminate()
     echo "[INFO][TNGFUE] Removing IP and route"
     sudo ip addr flush $IFACE_NAME # removes IP and default route too
 
-    echo "[INFO][TNGFUE] Terminating TNGFUE..."
-    sudo kill -SIGTERM ${PID_LIST[@]}
-
     cd ..
 }
 
@@ -71,10 +72,9 @@ SUDO_TNGFUE_PID=$!
 sleep 0.1
 TNGFUE_PID=$(pgrep -P ${SUDO_TNGFUE_PID})
 PID_LIST+=($SUDO_TNGFUE_PID $TNGFUE_PID)
-if [[ $ENABLE_DEBUG -eq 1 ]]; echo "[DEBU][TNGFUE]" SUDO_TNGFUE_PID $SUDO_TNGFUE_PID; then echo "[DEBU][TNGFUE]" TNGFUE_PID $TNGFUE_PID; fi
+if [[ $ENABLE_DEBUG -eq 1 ]]; then echo "[DEBU][TNGFUE]" SUDO_TNGFUE_PID $SUDO_TNGFUE_PID; echo "[DEBU][TNGFUE]" TNGFUE_PID $TNGFUE_PID; fi
 
 trap terminate SIGINT
 wait ${PID_LIST}
-sleep 3 # gives enough time for wpa_supplicant to finish when it's stuck or in a loop
 echo "[INFO][TNGFUE] The TNGFUE terminated successfully"
 exit 0
