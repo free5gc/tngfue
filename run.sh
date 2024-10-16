@@ -10,8 +10,16 @@ fi
 PID_LIST=()
 IFACE_NAME='wlp3s0' # network interface used to connect to the TNGF / Wi-Fi AP
 IFACE_IP='192.168.1.202' # IP address to be used by the network interface
-IFACE_MASK='24' # Network mask to be used by configuration command
+IFACE_MASK='24' # network mask to be used by configuration command
 IFACE_BROADCAST_IP='192.168.1.255' # IP address to be used by configuration command
+ENABLE_DEBUG=0 # controls if debug messages are enabled
+
+case $1 in # insert a 'case statement' to allow adding other input parameters in the future
+    # TODO delete the comment above whenever a new parameter is added
+    -debug)
+    ENABLE_DEBUG=1
+    ;;
+esac
 
 function terminate()
 {
@@ -51,13 +59,19 @@ sudo ip route add default via $IFACE_IP dev $IFACE_NAME
 
 # Run TNGFUE
 cd wpa_supplicant
-sudo ./wpa_supplicant -c ../wpa_supplicant.conf -i $IFACE_NAME &
+if [[ $ENABLE_DEBUG -eq 0 ]]; then
+    sudo ./wpa_supplicant -c ../wpa_supplicant.conf -i $IFACE_NAME &
+elif [[ $ENABLE_DEBUG -eq 1 ]]; then
+    sudo ./wpa_supplicant -c ../wpa_supplicant.conf -i $IFACE_NAME -dd &
+else
+    echo "[ERRO][TNGFUE] Failed to set ENABLE_DEBUG variable"
+    exit 2
+fi
 SUDO_TNGFUE_PID=$!
 sleep 0.1
-echo "[DEBUG][TNGFUE]" SUDO_TNGFUE_PID $SUDO_TNGFUE_PID
 TNGFUE_PID=$(pgrep -P ${SUDO_TNGFUE_PID})
 PID_LIST+=($SUDO_TNGFUE_PID $TNGFUE_PID)
-echo "[DEBUG][TNGFUE]" TNGFUE_PID ${TNGFUE_PID}
+if [[ $ENABLE_DEBUG -eq 1 ]]; echo "[DEBU][TNGFUE]" SUDO_TNGFUE_PID $SUDO_TNGFUE_PID; then echo "[DEBU][TNGFUE]" TNGFUE_PID $TNGFUE_PID; fi
 
 trap terminate SIGINT
 wait ${PID_LIST}
