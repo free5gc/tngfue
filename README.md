@@ -41,7 +41,8 @@ The [run.sh](./run.sh) script was designed to automate the processes required to
 - `-D`: set driver name to be used
 - `-d`: show debug messages
 - `-dd`: show even more detailed debug messages
-4. Some usage examples:
+4. Debug messages can be enabled using `./run.sh -debug`
+5. Some other usage examples:
 
 **Note:** Run the commands below inside [wpa_supplicant](./wpa_supplicant/) sub-folder
 
