@@ -8,7 +8,7 @@ then
 fi
 
 PID_LIST=()
-IFACE_NAME='wlp3s0' # network interface used to connect to the TNGF / Wi-Fi AP
+IFACE_NAME='' # to store the network interface name used to connect to the TNGF / Wi-Fi AP
 IFACE_IP='192.168.1.202' # IP address to be used by the network interface
 IFACE_MASK='24' # network mask to be used by configuration command
 IFACE_BROADCAST_IP='192.168.1.255' # IP address to be used by configuration command
@@ -53,6 +53,12 @@ function terminate()
 
     cd ..
 }
+
+# If IFACE_NAME is empty, read the Wi-Fi interface name from sec.conf
+if [[ -z $IFACE_NAME ]]; then
+    IFACE_NAME="$(head -n 1 ./wpa_supplicant/sec.conf)" | cut -d : -f 2 # get the second slice (colon separated) of the first line of the file
+else
+    echo "[INFO][TNGFUE] Interface already set. Using $IFACE_NAME as interface name"
 
 # Configure IP and route
 sudo ip addr add $IFACE_IP/$IFACE_MASK brd $IFACE_BROADCAST_IP dev $IFACE_NAME
