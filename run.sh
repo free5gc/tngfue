@@ -59,6 +59,7 @@ if [[ -z $IFACE_NAME ]]; then
     IFACE_NAME="$(head -n 1 ./wpa_supplicant/sec.conf)" | cut -d : -f 2 # get the second slice (colon separated) of the first line of the file
 else
     echo "[INFO][TNGFUE] Interface already set. Using $IFACE_NAME as interface name"
+fi
 
 # Configure IP and route
 sudo ip addr add $IFACE_IP/$IFACE_MASK brd $IFACE_BROADCAST_IP dev $IFACE_NAME
