@@ -56,7 +56,7 @@ function terminate()
 
 # If IFACE_NAME is empty, read the Wi-Fi interface name from sec.conf
 if [[ -z $IFACE_NAME ]]; then
-    IFACE_NAME="$(head -n 1 ./wpa_supplicant/sec.conf)" | cut -d : -f 2 # get the second slice (colon separated) of the first line of the file
+    IFACE_NAME="$(head -n 1 ./wpa_supplicant/sec.conf | cut -d : -f 2)" # get the second slice (colon separated) of the first line of the file
 else
     echo "[INFO][TNGFUE] Interface already set. Using $IFACE_NAME as interface name"
 fi
