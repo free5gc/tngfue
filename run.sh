@@ -50,8 +50,6 @@ function terminate()
     # Remove IP and route
     echo "[INFO][TNGFUE] Removing IP and route"
     sudo ip addr flush $IFACE_NAME # removes IP and default route too
-
-    cd ..
 }
 
 # If IFACE_NAME is empty, read the Wi-Fi interface name from sec.conf
