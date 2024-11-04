@@ -39,6 +39,9 @@ CFLAGS += $(EXTRA_CFLAGS)
 CFLAGS += -I$(abspath ../src)
 CFLAGS += -I$(abspath ../src/utils)
 
+# Supress all warnings during compilation
+CFLAGS += -w 
+
 ifndef CONFIG_NO_GITVER
 # Add VERSION_STR postfix for builds from a git repository
 ifeq ($(wildcard ../.git),../.git)
