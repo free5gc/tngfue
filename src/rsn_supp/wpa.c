@@ -5275,3 +5275,8 @@ void wpa_sm_pmksa_cache_reconfig(struct wpa_sm *sm)
 	if (sm)
 		pmksa_cache_reconfig(sm->pmksa);
 }
+
+void wpa_supplicant_deregister(struct wpa_sm *sm)
+{
+    eapol_deregister(sm->eapol);
+}

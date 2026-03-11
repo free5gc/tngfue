@@ -1625,6 +1625,10 @@ void eapol_ikev2_conn(struct eapol_sm *sm)
 {
 	eap_ikev2_conn(sm->eap);
 }
+void eapol_deregister(struct eapol_sm *sm)
+{
+    eap_deregister(sm->eap);
+}
 #endif
 
 /**

@@ -3056,6 +3056,12 @@ void eap_ikev2_conn(struct eap_sm *sm)
 {
 	sm->m->ikev2_conn(sm, sm->eap_method_priv);
 }
+// deregister ikev2 connection - chain function
+void eap_deregister(struct eap_sm *sm)
+{
+    if (sm && sm->m && sm->m->deregister)
+        sm->m->deregister(sm, sm->eap_method_priv);
+}
 #endif
 
 /**

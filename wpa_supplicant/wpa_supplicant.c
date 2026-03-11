@@ -1080,6 +1080,24 @@ void wpa_supplicant_set_state(struct wpa_supplicant *wpa_s,
 void wpa_supplicant_terminate_proc(struct wpa_global *global)
 {
 	int pending = 0;
+
+#ifdef EAP_VENDOR_TEST
+    {
+        static int deregistered = 0;
+        if (!deregistered) {
+            deregistered = 1;
+            /* Perform UE deregistration before termination */
+            struct wpa_supplicant *wpa_s = global->ifaces;
+            while (wpa_s) {
+                if (wpa_s->wpa) {
+                    wpa_printf(MSG_INFO, "Initiating UE deregistration before exit...");
+                    wpa_supplicant_deregister(wpa_s->wpa);
+                }
+                wpa_s = wpa_s->next;
+            }
+        }
+    }
+#endif
 #ifdef CONFIG_WPS
 	struct wpa_supplicant *wpa_s = global->ifaces;
 	while (wpa_s) {
@@ -1098,7 +1116,6 @@ void wpa_supplicant_terminate_proc(struct wpa_global *global)
 		return;
 	eloop_terminate();
 }
-
 
 static void wpa_supplicant_terminate(int sig, void *signal_ctx)
 {

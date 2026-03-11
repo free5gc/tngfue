@@ -153,3 +153,43 @@ typedef struct _RegexMatchRes{
 	int start;
 	int end;
 } RegexMatchRes;
+
+/* Function declarations for UE deregistration */
+
+/**
+ * eap_vendor_test_initiate_deregistration - Initiate UE deregistration sequence
+ * @sm: EAP state machine pointer
+ * @priv: Private data (eap_vendor_test_data structure)
+ * 
+ * Initiates the complete UE-originated deregistration flow:
+ * 1. Builds and sends Deregistration Request
+ * 2. Handles IKE DELETE message from TNGF
+ * 3. Processes Deregistration Accept response
+ */
+void eap_vendor_test_initiate_deregistration(struct eap_sm *sm, void *priv);
+
+/* Deregistration Type */
+#define DEREG_TYPE_NORMAL                                           0x01
+#define DEREG_TYPE_NORMAL_SWITCH_OFF                                0x09
+
+/* Deregistration context for UE-originated deregistration */
+struct ue_deregister_context {
+	int state;  /* 0=init, 1=deregistering, 2=deregistered */
+	
+	/* Security context */
+	u8 *k_nas_int;
+	u8 *k_nas_enc;
+	u8 ngksi;
+	
+	/* UE identity - 5G-GUTI */
+	u8 *guti;
+	size_t guti_length;
+	
+	/* NAS counter */
+	u32 uplink_count;
+	u32 downlink_count;
+	
+	/* Cipher and integrity algorithm */
+	int cipher_alg;
+	int integ_alg;
+};

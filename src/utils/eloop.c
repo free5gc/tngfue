@@ -1046,7 +1046,6 @@ int eloop_register_signal(int sig, eloop_signal_handler handler,
 	return 0;
 }
 
-
 int eloop_register_signal_terminate(eloop_signal_handler handler,
 				    void *user_data)
 {

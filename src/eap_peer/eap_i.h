@@ -220,6 +220,8 @@ struct eap_method {
 
 #ifdef EAP_VENDOR_TEST
 	struct wpabuf * (*ikev2_conn)(struct eap_sm *sm, void *priv);
+	// Adds deregister function pointer to EAP method structure
+	void (*deregister)(struct eap_sm *sm, void *priv);  // ADD THIS
 #endif
 
 	/**

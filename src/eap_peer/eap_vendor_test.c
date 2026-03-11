@@ -902,15 +902,19 @@ static struct wpabuf * eap_vendor_test_process_5gnas_smc(u8 id, const struct wpa
 		integrity = true;
 		cipher = true;
 		break;
-	case 3: //
+	case 3: // integrity protected with new 5G NAS security context
 		integrity = true;
+		for (int i = 0; i < 4; i++)
+			data->nas_uplink_cnt[i] = 0;
+		cnt_set(data->uplink_cnt, 0, 0);
 		cnt_set(data->downlink_cnt, 0, 0);
 		break;
-	case 4:
+	case 4: // integrity protected and ciphered with new 5G NAS security context
 		integrity = true;
 		cipher = true;
 		for (int i = 0; i < 4; i++)
 			data->nas_uplink_cnt[i] = 0;
+		cnt_set(data->uplink_cnt, 0, 0);
 		cnt_set(data->downlink_cnt, 0, 0);
 		break;
 	default:
@@ -1666,6 +1670,354 @@ void eap_vendor_test_ikev2_process(struct eap_sm *sm, void *priv)
 	}
 }
 
+/**
+ * eap_vendor_test_build_deregistration_request - Build UE-originating Deregistration Request
+ * 
+ * According to TS 24.501 Section 8.3.2, the Deregistration Request message
+ * contains:
+ * - Extended Protocol Discriminator (1 octet)
+ * - Security Header Type (half octet)
+ * - Spare Half Octet (half octet)
+ * - Deregistration Request message identity (1 octet)
+ * - Deregistration type (bits 2-0) + ngKSI (bits 7-5)
+ * - 5G mobile identity (LV-E format)
+ */
+static struct wpabuf * eap_vendor_test_build_deregistration_request(
+	struct eap_vendor_test_data *data, u8 ngksi, u8 *guti, size_t guti_len)
+{
+	struct wpabuf *resp_nas_pdu = wpabuf_alloc(50);
+	
+	if (!resp_nas_pdu) {
+		wpa_printf(MSG_ERROR, "Failed to allocate deregistration request buffer");
+		return NULL;
+	}
+
+	/* 1. Extended Protocol Discriminator (EPD) */
+	wpabuf_put_u8(resp_nas_pdu, Epd5GSMobilityManagementMessage);
+
+	/* 2. Security Header Type (4 bits) + Spare Half Octet (4 bits)
+	 *    0x00 = Plain NAS message (no security)
+	 */
+	wpabuf_put_u8(resp_nas_pdu, SecurityHeaderTypePlainNas);
+
+	/* 3. Message Type: Deregistration Request (UE-originating) */
+	wpabuf_put_u8(resp_nas_pdu, MsgTypeDeregistrationRequestUEOriginatingDeregistration);
+
+	/* 4. NgKSI (bits 7-4) + Deregistration type (bits 3-0)
+	 * Per TS 24.501 Section 9.11.3.20:
+	 *   bits 7 (TSC) + bits 6-4 (ngKSI): packed in high nibble via (ngksi << 4)
+	 *   bit 3: Switch off   (0 = normal deregistration, 1 = switch off)
+	 *   bit 2: Re-registration required (0 = not required)
+	 *   bits 1-0: Access type
+	 *             01 = 3GPP access
+	 *             10 = Non-3GPP access
+	 *             11 = 3GPP and Non-3GPP access
+	 *
+	 * For Non-3GPP normal deregistration: bits 1-0 = 10 = 0x02
+	 */
+	u8 access_and_type = 0x02; /* Non-3GPP access (bits 1-0 = 0b10), no switch-off, no re-reg */
+
+	u8 dereg_type_and_ngksi = (ngksi << 4) | access_and_type;
+	wpabuf_put_u8(resp_nas_pdu, dereg_type_and_ngksi);
+
+	/* 5. 5G mobile identity (LV-E format)
+	 *    Format: Length (2 octets) + Identity value
+	 */
+	wpabuf_put_be16(resp_nas_pdu, guti_len);
+	wpabuf_put_data(resp_nas_pdu, guti, guti_len);
+
+	wpa_printf(MSG_DEBUG, 
+		   "Built Deregistration Request message (%zu bytes)",
+		   wpabuf_len(resp_nas_pdu));
+	wpa_hexdump_buf(MSG_DEBUG, "Deregistration Request (plain NAS)",
+		    resp_nas_pdu);
+
+	return resp_nas_pdu;
+}
+
+/**
+ * eap_vendor_test_send_deregistration - Send UE-originated Deregistration Request via TCP
+ * 
+ * Based on tngf_test.go flow:
+ * 1. Build Deregistration Request
+ * 2. Send over TCP connection
+ * 3. Wait for IKE DELETE message
+ * 4. Respond with IKE INFORMATIONAL Response
+ * 5. Receive Deregistration Accept
+ */
+static int eap_vendor_test_send_deregistration(struct eap_sm *sm, 
+	struct eap_vendor_test_data *data, u8 ngksi, u8 *guti, size_t guti_len)
+{
+	struct wpabuf *dereg_req;
+	int bytes_sent;
+
+	/* Build Deregistration Request (inner plain NAS message) */
+	dereg_req = eap_vendor_test_build_deregistration_request(data, ngksi, guti, guti_len);
+	if (!dereg_req) {
+		wpa_printf(MSG_ERROR, "Failed to build Deregistration Request");
+		return -1;
+	}
+
+	/* Send the message over TCP connection */
+	if (data->s_tcp <= 0) {
+		wpa_printf(MSG_ERROR, "TCP connection not established for deregistration");
+		wpabuf_free(dereg_req);
+		return -1;
+	}
+
+	/* Wrap with NAS security (integrity + ciphering) per TS 24.501.
+	 * After registration, the UE has an established security context, so the
+	 * AMF requires SecurityHeaderTypeIntegrityProtectedAndCiphered (0x02).
+	 * BuildSecureNAS also adds the 2-byte length prefix per TS 24.502 Section 9.4.
+	 */
+	struct wpabuf *secured = BuildSecureNAS(SecurityHeaderTypeIntegrityProtectedAndCiphered, dereg_req, data);
+	if (!secured) {
+		wpa_printf(MSG_ERROR, "Failed to build secured Deregistration Request");
+		return -1;
+	}
+
+	bytes_sent = send(data->s_tcp, wpabuf_head(secured), wpabuf_len(secured), 0);
+	if (bytes_sent < 0) {
+		wpa_printf(MSG_ERROR, "Failed to send Deregistration Request: %s", strerror(errno));
+		wpabuf_free(secured);
+		return -1;
+	}
+
+	wpa_printf(MSG_INFO, "Deregistration Request sent successfully (%d bytes)", bytes_sent);
+	wpabuf_free(secured);
+
+	return 0;
+}
+
+/**
+ * eap_vendor_test_handle_ike_delete - Handle IKE DELETE message from TNGF
+ * 
+ * According to RFC 7296, when deleting an IKE SA:
+ * - Receive IKE INFORMATIONAL (DELETE) Request
+ * - Verify it contains DELETE payload
+ * - Build IKE INFORMATIONAL Response (with empty payload)
+ * - Send response back to TNGF
+ */
+static int eap_vendor_test_handle_ike_delete(struct eap_sm *sm, 
+	struct eap_vendor_test_data *data)
+{
+	int sin_size = sizeof(data->sin_tngf);
+	int actual_size;
+	u8 buf[BUF_SIZE];
+	struct timeval tv;
+
+	wpa_printf(MSG_INFO, "--- Waiting for TNGF to send IKE INFORMATIONAL (DELETE) Request ---");
+
+	/* Set socket timeout for receiving IKE DELETE message */
+	tv.tv_sec = 5;
+	tv.tv_usec = 0;
+	if (setsockopt(data->s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
+		wpa_printf(MSG_ERROR, "Failed to set socket timeout");
+		return -1;
+	}
+
+	/* Receive IKE DELETE request (retry on EINTR from signal interruption) */
+	do {
+		actual_size = recvfrom(data->s, buf, BUF_SIZE, MSG_WAITALL,
+				       (struct sockaddr *)&data->sin_tngf, (socklen_t *)&sin_size);
+	} while (actual_size < 0 && errno == EINTR);
+	if (actual_size < 0) {
+		wpa_printf(MSG_ERROR, "Failed to receive IKE message from TNGF: %s", strerror(errno));
+		return -1;
+	}
+
+	wpa_printf(MSG_INFO, "Received IKE message from TNGF (%d bytes)", actual_size);
+	wpa_hexdump(MSG_DEBUG, "IKE DELETE message", buf, actual_size);
+
+	/* Validate minimum IKE header size */
+	if (actual_size < (int) sizeof(struct ikev2_hdr)) {
+		wpa_printf(MSG_ERROR, "Received IKE message too short to parse header (%d bytes)", actual_size);
+		return -1;
+	}
+
+	/* Parse message ID from received IKE DELETE request header */
+	const struct ikev2_hdr *req_hdr = (const struct ikev2_hdr *) buf;
+	u32 msg_id = WPA_GET_BE32(req_hdr->message_id);
+	wpa_printf(MSG_DEBUG, "IKE DELETE request message ID: %u", msg_id);
+
+	wpa_printf(MSG_INFO, "--- Building IKE INFORMATIONAL Response ---");
+
+	/* Build IKE INFORMATIONAL response per RFC 7296 Section 1.4:
+	 * - Copy SPIs from established IKE SA
+	 * - Set INITIATOR flag (UE is IKE SA initiator) and RESPONSE flag
+	 * - Use same message ID as the DELETE request
+	 * - Encrypt an empty payload (no DELETE payload in response)
+	 */
+	struct wpabuf *ike_resp = wpabuf_alloc(sizeof(struct ikev2_hdr) + 100);
+	if (!ike_resp) {
+		wpa_printf(MSG_ERROR, "Failed to allocate IKE INFORMATIONAL response buffer");
+		return -1;
+	}
+
+	struct ikev2_hdr *hdr = wpabuf_put(ike_resp, sizeof(*hdr));
+	os_memcpy(hdr->i_spi, data->ikev2.i_spi, IKEV2_SPI_LEN);
+	os_memcpy(hdr->r_spi, data->ikev2.r_spi, IKEV2_SPI_LEN);
+	hdr->next_payload = IKEV2_PAYLOAD_ENCRYPTED;
+	hdr->version = IKEV2_VERSION;
+	hdr->exchange_type = INFORMATION;
+	hdr->flags = IKEV2_HDR_INITIATOR | IKEV2_HDR_RESPONSE;
+	WPA_PUT_BE32(hdr->message_id, msg_id);
+
+	/* Build encrypted empty payload.
+	 * UE is the IKE SA initiator, so initiator=1 selects SK_ei/SK_ai keys.
+	 */
+	struct wpabuf *plain = wpabuf_alloc(4);
+	if (!plain) {
+		wpa_printf(MSG_ERROR, "Failed to allocate IKE plain payload buffer");
+		wpabuf_free(ike_resp);
+		return -1;
+	}
+	if (ikev2_build_encrypted(data->ikev2.sa.proposal[0].encr,
+				  data->ikev2.sa.proposal[0].integ,
+				  &data->ikev2.keys, 1 /* initiator */,
+				  ike_resp, plain,
+				  IKEV2_PAYLOAD_NO_NEXT_PAYLOAD) != 0) {
+		wpa_printf(MSG_ERROR, "Failed to build IKE encrypted payload for INFORMATIONAL response");
+		wpabuf_free(plain);
+		wpabuf_free(ike_resp);
+		return -1;
+	}
+	wpabuf_free(plain);
+
+	wpa_hexdump_buf(MSG_DEBUG, "IKE INFORMATIONAL Response", ike_resp);
+
+	if (sendto(data->s, wpabuf_head(ike_resp), wpabuf_len(ike_resp), 0,
+		   (struct sockaddr *)&data->sin_tngf, sizeof(data->sin_tngf)) < 0) {
+		wpa_printf(MSG_ERROR, "Failed to send IKE INFORMATIONAL Response: %s", strerror(errno));
+		wpabuf_free(ike_resp);
+		return -1;
+	}
+
+	wpabuf_free(ike_resp);
+	wpa_printf(MSG_INFO, "Successfully sent IKE INFORMATIONAL Response to TNGF");
+	return 0;
+}
+
+/**
+ * eap_vendor_test_process_deregistration_accept - Process Deregistration Accept message
+ * 
+ * According to TS 24.501 Section 8.3.3:
+ * - Receive Deregistration Accept (message type 70)
+ * - Verify message type and format
+ * - Clean up UE context and security associations
+ */
+static int eap_vendor_test_process_deregistration_accept(struct eap_sm *sm,
+	struct eap_vendor_test_data *data)
+{
+	int actual_size;
+	u8 buf[BUF_SIZE];
+	struct timeval tv;
+	const u8 *nas_msg;
+	int nas_len;
+	u8 sec_hdr, msg_type_offset;
+
+	wpa_printf(MSG_INFO, "--- Waiting for Deregistration Accept from TNGF ---");
+
+	/* Set receive timeout so we don't block indefinitely */
+	tv.tv_sec = 5;
+	tv.tv_usec = 0;
+	if (setsockopt(data->s_tcp, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0)
+		wpa_printf(MSG_WARNING, "Failed to set TCP socket timeout: %s", strerror(errno));
+
+	/* Receive Deregistration Accept via TCP (NAS message envelope format) */
+	actual_size = recv(data->s_tcp, buf, BUF_SIZE, 0);
+	if (actual_size < 0) {
+		wpa_printf(MSG_ERROR, "Failed to receive Deregistration Accept: %s", strerror(errno));
+		return -1;
+	}
+	if (actual_size == 0) {
+		wpa_printf(MSG_WARNING, "TCP connection closed before receiving Deregistration Accept");
+		return -1;
+	}
+
+	wpa_hexdump(MSG_DEBUG, "Deregistration Accept (with NAS envelope)", buf, actual_size);
+
+	/* Strip NAS message envelope: [2-byte Length][NAS Message] per TS 24.502 Section 9.4 */
+	if (actual_size < 2) {
+		wpa_printf(MSG_ERROR, "Deregistration Accept too short for NAS envelope (%d bytes)", actual_size);
+		return -1;
+	}
+	nas_len = (buf[0] << 8) | buf[1];
+	if (actual_size < 2 + nas_len || nas_len < 3) {
+		wpa_printf(MSG_ERROR, "Deregistration Accept NAS length invalid (envelope says %d, got %d bytes)",
+			   nas_len, actual_size - 2);
+		return -1;
+	}
+	nas_msg = &buf[2];
+
+	wpa_hexdump(MSG_DEBUG, "Deregistration Accept (NAS message)", nas_msg, nas_len);
+
+	/* Verify NAS EPD */
+	if (nas_msg[0] != Epd5GSMobilityManagementMessage) {
+		wpa_printf(MSG_ERROR, "Invalid EPD in Deregistration Accept (0x%02x)", nas_msg[0]);
+		return -1;
+	}
+
+	/* Determine message type offset:
+	 * Plain NAS (sec_hdr == 0x00): msg type at offset 2
+	 * Secured NAS (sec_hdr != 0x00): msg type at offset 9
+	 *   (header=2) + (MAC=4) + (SQN=1) + (inner EPD=1) + (inner SHT=1) = 9
+	 */
+	sec_hdr = nas_msg[1] & 0x0f;
+	msg_type_offset = (sec_hdr != 0) ? 9 : 2;
+	if (nas_len <= msg_type_offset) {
+		wpa_printf(MSG_ERROR, "Deregistration Accept too short to read message type");
+		return -1;
+	}
+
+	if (nas_msg[msg_type_offset] != MsgTypeDeregistrationAcceptUEOriginatingDeregistration) {
+		wpa_printf(MSG_ERROR,
+			   "Unexpected message type in Deregistration Accept (expected %d, got %d)",
+			   MsgTypeDeregistrationAcceptUEOriginatingDeregistration,
+			   nas_msg[msg_type_offset]);
+		return -1;
+	}
+
+	wpa_printf(MSG_INFO, "Successfully received and validated Deregistration Accept");
+	wpa_printf(MSG_INFO, "UE deregistration completed successfully");
+
+	/* Clean up resources */
+	wpa_printf(MSG_INFO, "Cleaning up UE resources after deregistration...");
+
+	/* Close TCP NAS connection */
+	if (data->s_tcp > 0) {
+		close(data->s_tcp);
+		data->s_tcp = -1;
+	}
+
+	/* Close IKE/UDP socket */
+	if (data->s > 0) {
+		close(data->s);
+		data->s = -1;
+	}
+
+	/* Flush XFRM states and policies */
+	system("ip xfrm state flush");
+	system("ip xfrm policy flush");
+
+	/* Remove GRE tunnel */
+	system("ip tunnel del greTun0 2>/dev/null");
+
+	/* Remove xfrm interfaces */
+	{
+		int i;
+		char cmd[64];
+		for (i = 1; i <= data->ikev2.child_sa_idx + 1; i++) {
+			snprintf(cmd, sizeof(cmd), "ip link del xfrm-%d 2>/dev/null", i);
+			system(cmd);
+		}
+	}
+
+	wpa_printf(MSG_INFO, "Resource cleanup completed");
+
+	return 0;
+}
+
 void eap_vendor_test_ikev2_conn(struct eap_sm *sm, void *priv)
 {
 	struct eap_vendor_test_data *data = priv;
@@ -1759,6 +2111,61 @@ void eap_vendor_test_ikev2_conn(struct eap_sm *sm, void *priv)
 	eap_vendor_test_ikev2_process(sm, data);
 }
 
+/**
+ * eap_vendor_test_initiate_deregistration - Initiate UE deregistration sequence
+ * 
+ * This function demonstrates the complete deregistration flow as per tngf_test.go:
+ * 1. Build and send Deregistration Request via TCP
+ * 2. Wait for IKE DELETE message from TNGF
+ * 3. Send IKE INFORMATIONAL Response
+ * 4. Receive Deregistration Accept
+ * 
+ * Can be called from various triggers:
+ * - User request (e.g., "deregister" command)
+ * - Periodic timer
+ * - Application shutdown
+ * - Network error recovery
+ */
+void eap_vendor_test_initiate_deregistration(struct eap_sm *sm, void *priv)
+{
+	struct eap_vendor_test_data *data = priv;
+
+	if (!data) {
+		wpa_printf(MSG_ERROR, "Invalid EAP vendor test data");
+		return;
+	}
+
+	/* Prepare 5G-GUTI for deregistration */
+	u8 guti[] = {
+		0xf2, 0x02, 0xf8, 0x39, 0xca, 0xfe,
+		0x00, 0x00, 0x00, 0x00, 0x01
+	};
+	size_t guti_len = sizeof(guti);
+	u8 ngksi = 0;  /* NG Key Set Identifier */
+
+	wpa_printf(MSG_INFO, "====== UE Initiated Deregistration ======");
+
+	/* Step 1: Send Deregistration Request */
+	if (eap_vendor_test_send_deregistration(sm, data, ngksi, guti, guti_len) != 0) {
+		wpa_printf(MSG_ERROR, "Failed to send deregistration request");
+		return;
+	}
+
+	/* Step 2: Handle IKE DELETE message */
+	if (eap_vendor_test_handle_ike_delete(sm, data) != 0) {
+		wpa_printf(MSG_ERROR, "Failed to handle IKE DELETE message");
+		return;
+	}
+
+	/* Step 3: Process Deregistration Accept */
+	if (eap_vendor_test_process_deregistration_accept(sm, data) != 0) {
+		wpa_printf(MSG_ERROR, "Failed to process deregistration accept");
+		return;
+	}
+
+	wpa_printf(MSG_INFO, "====== UE Deregistration Completed Successfully ======");
+}
+
 int eap_peer_vendor_test_register(void)
 {
 	struct eap_method *eap;
@@ -1776,6 +2183,7 @@ int eap_peer_vendor_test_register(void)
 	eap->getKey = eap_vendor_test_getKey;
 #ifdef EAP_VENDOR_TEST
 	eap->ikev2_conn = eap_vendor_test_ikev2_conn;
+	eap->deregister = eap_vendor_test_initiate_deregistration; // Deregistration function
 #endif
 
 	return eap_peer_method_register(eap);
